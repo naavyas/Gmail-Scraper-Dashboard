@@ -35,7 +35,8 @@ app.get('/auth', (req, res) => {
       'https://www.googleapis.com/auth/gmail.readonly',
       'https://www.googleapis.com/auth/userinfo.email',
       'openid',
-      'profile'
+      'profile',
+      'https://www.googleapis.com/auth/calendar.readonly'
     ],
     prompt: 'consent'
   });
@@ -86,14 +87,35 @@ function getWeekString(date) {
   return `${d.getUTCFullYear()}-W${week}`;
 }
 
-function isOutboundEmail(headers) {
+function isOutboundEmail(headers, bodySnippet) {
   const toHeader = headers.find(h => h.name.toLowerCase() === 'to');
   const subjectHeader = headers.find(h => h.name.toLowerCase() === 'subject');
   if (!toHeader || !subjectHeader) return false;
   const recipients = toHeader.value.split(/[;,]/).map(e => e.trim().toLowerCase());
   if (recipients.some(addr => addr.endsWith('@metaprop.com'))) return false;
-  if (!/^.+ x metaprop$/i.test(subjectHeader.value.trim())) return false;
-  return true;
+
+  // Heuristic: subject contains 'metaprop' or 'reconnect' or 'intro' or 'x metaprop' (case-insensitive)
+  const subject = subjectHeader.value.toLowerCase();
+  const subjectMatch = /metaprop|reconnect|intro|x metaprop/.test(subject);
+
+  // Heuristic: body contains key phrases from templates (case-insensitive)
+  const body = (bodySnippet || '').toLowerCase();
+  const bodyMatch = [
+    "just wanted to follow up in case my earlier note got buried",
+    "i'd love to find time for a quick intro",
+    "meta prop has been tracking innovation",
+    "my name is",
+    "i'm a growth investor at metaprop",
+    "we'd love to reconnect",
+    "even if fundraising isn't on the near-term agenda",
+    "would you be open to a quick conversation",
+    "looking forward to connecting",
+    "hear what you're building",
+    "find ways to be helpful ahead of time"
+  ].some(phrase => body.includes(phrase));
+
+  // Outbound if either subject or body matches
+  return subjectMatch || bodyMatch;
 }
 
 // === API ===
@@ -122,8 +144,8 @@ app.get('/api/emails/stacked-summary', async (req, res) => {
       for (const msg of messages) {
         const msgData = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'full' });
         const headers = msgData.data.payload.headers;
-
-        if (isOutboundEmail(headers)) {
+        const bodySnippet = msgData.data.snippet || '';
+        if (isOutboundEmail(headers, bodySnippet)) {
           const dateHeader = headers.find(h => h.name.toLowerCase() === 'date');
           const date = dateHeader ? new Date(dateHeader.value) : new Date(Number(msgData.data.internalDate));
           const week = getWeekString(date);
@@ -149,6 +171,34 @@ app.get('/api/emails/stacked-summary', async (req, res) => {
 app.get('/api/users', (req, res) => {
   const dbUsers = getAllUsers();
   res.json(dbUsers.map(u => u.email));
+});
+
+app.get('/api/calendar/events', async (req, res) => {
+  try {
+    const dbUsers = getAllUsers();
+    if (!dbUsers.length) return res.status(401).json({ error: 'No authenticated users' });
+    // For demo, just use the first user
+    const user = dbUsers[0];
+    const tokens = JSON.parse(user.tokens);
+    const userAuth = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    userAuth.setCredentials(tokens);
+    const calendar = google.calendar({ version: 'v3', auth: userAuth });
+    const now = new Date().toISOString();
+    const eventsRes = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin: now,
+      maxResults: 10,
+      singleEvents: true,
+      orderBy: 'startTime',
+    });
+    res.json({ events: eventsRes.data.items || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // === Serve frontend ===

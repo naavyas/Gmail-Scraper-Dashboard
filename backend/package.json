@@ -9,11 +9,11 @@
     "postinstall": "npm rebuild better-sqlite3"
   },
   "dependencies": {
-    "better-sqlite3": "^8.7.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
-    "googleapis": "^133.0.0"
+    "googleapis": "^133.0.0",
+    "sqlite3": "^5.1.7"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

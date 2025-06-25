@@ -1,32 +1,37 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
 
-// Resolve cross-platform directory
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Rebuild better-sqlite3 native binary on Linux server (Render)
-const db = new Database(path.join(__dirname, 'users.db'), {
-  verbose: console.log
+const dbPromise = open({
+  filename: 'users.db',
+  driver: sqlite3.Database
 });
 
-db.exec(`CREATE TABLE IF NOT EXISTS users (
-  email TEXT PRIMARY KEY,
-  tokens TEXT NOT NULL,
-  profile TEXT
-)`);
-
-export function getAllUsers() {
-  return db.prepare('SELECT * FROM users').all();
+export async function getAllUsers() {
+  const db = await dbPromise;
+  return db.all('SELECT * FROM users');
 }
 
-export function getUser(email) {
-  return db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+export async function getUser(email) {
+  const db = await dbPromise;
+  return db.get('SELECT * FROM users WHERE email = ?', email);
 }
 
-export function upsertUser(email, tokens, profile) {
-  db.prepare(`INSERT INTO users (email, tokens, profile) VALUES (?, ?, ?)
-    ON CONFLICT(email) DO UPDATE SET tokens=excluded.tokens, profile=excluded.profile`)
-    .run(email, JSON.stringify(tokens), JSON.stringify(profile));
-} 
+export async function upsertUser(email, tokens, profile) {
+  const db = await dbPromise;
+  await db.run(`
+    INSERT INTO users (email, tokens, profile)
+    VALUES (?, ?, ?)
+    ON CONFLICT(email)
+    DO UPDATE SET tokens=excluded.tokens, profile=excluded.profile
+  `, [email, JSON.stringify(tokens), JSON.stringify(profile)]);
+}
+
+// Ensure table exists on startup
+(async () => {
+  const db = await dbPromise;
+  await db.exec(`CREATE TABLE IF NOT EXISTS users (
+    email TEXT PRIMARY KEY,
+    tokens TEXT NOT NULL,
+    profile TEXT
+  )`);
+})(); 
