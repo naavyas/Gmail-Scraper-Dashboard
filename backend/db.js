@@ -1,5 +1,15 @@
 import Database from 'better-sqlite3';
-const db = new Database('users.db');
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Resolve cross-platform directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Rebuild better-sqlite3 native binary on Linux server (Render)
+const db = new Database(path.join(__dirname, 'users.db'), {
+  verbose: console.log
+});
 
 db.exec(`CREATE TABLE IF NOT EXISTS users (
   email TEXT PRIMARY KEY,
@@ -17,5 +27,6 @@ export function getUser(email) {
 
 export function upsertUser(email, tokens, profile) {
   db.prepare(`INSERT INTO users (email, tokens, profile) VALUES (?, ?, ?)
-    ON CONFLICT(email) DO UPDATE SET tokens=excluded.tokens, profile=excluded.profile`).run(email, JSON.stringify(tokens), JSON.stringify(profile));
+    ON CONFLICT(email) DO UPDATE SET tokens=excluded.tokens, profile=excluded.profile`)
+    .run(email, JSON.stringify(tokens), JSON.stringify(profile));
 } 
